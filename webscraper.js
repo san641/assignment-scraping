@@ -1,6 +1,5 @@
-const mysql = require('mysql2');
-const axios = require('axios');
-const cheerio = require('cheerio');
+
+onst mysql = require('mysql2');
 
 
 const db = mysql.createConnection({
@@ -10,92 +9,53 @@ const db = mysql.createConnection({
   database: 'companies'
 });
 
-function isValidArticleLink(link) {
-  return /articleshow.*\d+.*cms/.test(link);
-}
 
-
-function getSourceFromLink(link) {
-  const sources = [
-    { domain: 'timesofindia.indiatimes.com', source: 'timesofindia' },
-    { domain: 'indiatimes.com', source: 'indiatimes' }
-  ];
-
-  
-  for (const { domain, source } of sources) {
-    if (link.includes(domain)) {
-      return source;
-    }
-  }
-
-  return null; 
-}
-
-
-async function linkExistsInSourceTable(link) {
-  const [rows] = await db.promise().query('SELECT COUNT(*) AS count FROM source WHERE link = ?', [link]);
-  return rows[0].count > 0; 
-}
-
-
-async function fetchTimesOfIndiaLinks() {
+async function fetchSourceFromDatabase() {
   try {
-    const response = await axios.get('https://timesofindia.indiatimes.com/');
     
-    
-    const $ = cheerio.load(response.data);
-    
-    
-    const links = [];
-    $('a').each((i, element) => {
-      const link = $(element).attr('href');
-      if (link) {
-        links.push(link);
-      }
-    });
-    
-    console.log(`Found ${links.length} links on the homepage.`);
-    return links;
+    const [rows] = await db.promise().query('SELECT website_url  FROM source'); 
+    return rows;
   } catch (error) {
-    console.error('Error fetching Times of India links:', error);
+    console.error('Error fetching source data from database:', error);
+    return []; 
   }
 }
 
-
-async function insertNonValidLinks(nonValidLinks) {
-  for (let link of nonValidLinks) {
-    const source = getSourceFromLink(link);
+async function insertSource(website_url) {
+  try {
     
-    if (source && !(await linkExistsInSourceTable(link))) {
-     
-      await db.promise().query('INSERT INTO source (link, source) VALUES (?, ?)', [link, source]);
-      console.log(`Inserted non-valid link into source table: ${link} from ${source}`);
-    } else if (await linkExistsInSourceTable(link)) {
-      console.log(`Link already exists in the source table: ${link}`);
+    const [existingRow] = await db.promise().query('SELECT COUNT(*) AS count FROM source WHERE name = ? AND url = ?', [website_url]);
+    if (existingRow[0].count === 0) {
+      
+      await db.promise().query('INSERT INTO source (website_url) VALUES (?, ?)', [website_url]);
+      console.log(`Inserted: with URL: ${url}`);
     } else {
-      console.log(`Link did not match any valid source: ${link}`);
+      console.log(`Source with URL ${url} already exists.`);
     }
+  } catch (error) {
+    console.error('Error inserting source data:', error);
   }
 }
 
 
-async function processLinks() {
-  const links = await fetchTimesOfIndiaLinks();
-  console.log(`Total links fetched from Times of India: ${links.length}`);
+async function processSource() {
+  try {
+    
+    const source = await fetchSourceFromDatabase();
+    console.log(`Fetched ${source.length} source entries from the database.`);
 
-  
-  const validLinks = links.filter(link => isValidArticleLink(link));
-  const nonValidLinks = links.filter(link => !isValidArticleLink(link));
+    for (const { website_url } of source) {
+      await insertSource(wesite_url);
+    }
 
-  console.log(`Valid article links found: ${validLinks.length}`);
-  console.log(`Non-valid links found: ${nonValidLinks.length}`);
-
-  
-  await insertNonValidLinks(nonValidLinks);
-
-  console.log('Link processing and insertion completed!');
-  db.end();
+    console.log('Source  processing and insertion completed!');
+    db.end();  
+  } catch (error) {
+    console.error('Error in the main processing function:', error);
+    db.end();
+  }
 }
 
-processLinks().catch(console.error);
+
+processSource().catch(console.error);
 
